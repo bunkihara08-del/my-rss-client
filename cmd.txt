@@ -1,1 +1,1 @@
-tree
+alert('Hello from C2')
